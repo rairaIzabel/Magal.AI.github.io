@@ -1,4 +1,3 @@
-
 :root {
   --background-color: #f0f2f5;
   --container-bg-color: #ffffff;
@@ -114,6 +113,8 @@ body {
 
 #root {
   display: flex;
+  height: 100%;
+  width: 100%;
 }
 
 .app-container {
@@ -137,11 +138,37 @@ body {
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   position: relative;
   padding-bottom: 80px; /* Space for FAB */
+  z-index: 200;
 }
 
 .sidebar-header {
   padding: 1.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.close-sidebar-button {
+    background: none;
+    border: none;
+    color: var(--sidebar-text-color);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 50%;
+    display: none; /* Hidden on desktop */
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+    opacity: 0.7;
+}
+
+.close-sidebar-button:hover {
+    opacity: 1;
+    background-color: var(--sidebar-hover-bg);
 }
 
 .sidebar-header h1 {
@@ -245,6 +272,7 @@ body {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
+    width: 100%;
 }
 
 .chat-header {
@@ -262,6 +290,25 @@ body {
 /* Agent-specific header colors */
 .agent-fernando .chat-header { background-color: #010101; }
 .agent-ana .chat-header { background-color: #E67D4E; }
+
+.menu-button {
+  background: none;
+  border: none;
+  color: var(--header-text-color);
+  opacity: 0.8;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 50%;
+  display: none; /* Hidden by default */
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, opacity 0.2s;
+  margin-right: 0.5rem;
+}
+.menu-button:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.1);
+}
 
 .agent-header-info {
   display: flex;
@@ -380,13 +427,14 @@ body {
     cursor: pointer;
     font-size: 0.8rem;
     font-family: var(--font-family);
-    transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+    transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.15s ease;
     opacity: 0.8;
 }
 
 .filter-button:hover:not(:disabled) {
     opacity: 1;
     background-color: rgba(255, 255, 255, 0.1);
+    transform: translateY(-2px);
 }
 
 .filter-button.active {
@@ -478,8 +526,9 @@ body {
 .chat-form input { flex-grow: 1; padding: 0.75rem; border: 1px solid var(--input-border-color); border-radius: var(--border-radius); font-size: 1rem; font-family: var(--font-family); background-color: var(--input-bg-color); color: var(--input-text-color); transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
 .chat-form input:focus { outline: none; border-color: var(--button-bg-color); box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25); }
 .chat-form input::placeholder { color: var(--input-text-color); opacity: 0.7; }
-.chat-form button[type="submit"] { background-color: var(--button-bg-color); color: var(--button-text-color); border: none; padding: 0.75rem 1.5rem; border-radius: var(--border-radius); cursor: pointer; font-size: 1rem; font-family: var(--font-family); font-weight: 500; transition: background-color 0.2s, color 0.2s; }
-.chat-form button[type="submit"]:hover:not(:disabled) { background-color: var(--button-hover-bg-color); }
+.chat-form button[type="submit"] { background-color: var(--button-bg-color); color: var(--button-text-color); border: none; padding: 0.75rem 1.5rem; border-radius: var(--border-radius); cursor: pointer; font-size: 1rem; font-family: var(--font-family); font-weight: 500; transition: background-color 0.2s, color 0.2s, transform 0.2s ease, box-shadow 0.2s ease; }
+.chat-form button[type="submit"]:hover:not(:disabled) { background-color: var(--button-hover-bg-color); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+.chat-form button[type="submit"]:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
 .chat-form button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* Survey Form Styles */
@@ -515,9 +564,46 @@ body {
 
 .error-message { color: #dc3545; padding: 1rem; text-align: center; background-color: #f8d7da; border-bottom: 1px solid #f5c6cb; }
 
+/* Animation Keyframes */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* Modal Styles */
-.modal-overlay { position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 1rem; }
-.modal-content { background: var(--container-bg-color); color: var(--input-text-color); padding: 1.5rem 2rem; border-radius: var(--border-radius); width: 100%; max-width: 500px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+.modal-overlay { 
+  position: fixed; 
+  inset: 0; 
+  background-color: rgba(0, 0, 0, 0.6); 
+  display: flex; 
+  justify-content: center; 
+  align-items: center; 
+  z-index: 1000; 
+  padding: 1rem;
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.modal-content { 
+  background: var(--container-bg-color); 
+  color: var(--input-text-color); 
+  padding: 1.5rem 2rem; 
+  border-radius: var(--border-radius); 
+  width: 100%; 
+  max-width: 500px; 
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  animation: scaleIn 0.3s ease-out forwards;
+}
 .modal-content h3 { margin-top: 0; margin-bottom: 1rem; color: inherit; }
 .modal-content p { margin-bottom: 1rem; opacity: 0.8; }
 .modal-content textarea { width: 100%; padding: 0.75rem; border: 1px solid var(--input-border-color); border-radius: 8px; font-size: 1rem; font-family: var(--font-family); background-color: var(--input-bg-color); color: var(--input-text-color); resize: vertical; }
@@ -633,12 +719,13 @@ body {
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color 0.2s, color 0.2s, transform 0.2s ease;
 }
 
 .new-chat-button:hover {
   background-color: var(--sidebar-text-color);
   color: var(--sidebar-bg-color);
+  transform: translateY(-2px);
 }
 
 .history-list {
@@ -656,10 +743,11 @@ body {
   color: inherit;
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, transform 0.2s ease;
 }
 .history-item:hover {
   background-color: var(--sidebar-hover-bg);
+  transform: translateX(5px);
 }
 .history-item.active {
   background-color: var(--sidebar-active-bg);
@@ -685,4 +773,84 @@ body {
   padding: 2rem 1.5rem;
   text-align: center;
   opacity: 0.6;
+}
+
+.mobile-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 150;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+}
+
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-in-out;
+    border-right: none;
+    width: 280px;
+  }
+
+  .app-container.sidebar-visible .sidebar {
+    transform: translateX(0);
+    box-shadow: 5px 0 15px rgba(0,0,0,0.2);
+  }
+  
+  .app-container.sidebar-visible .mobile-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  
+  .close-sidebar-button {
+    display: flex;
+  }
+  
+  .chat-area {
+    width: 100%;
+  }
+
+  .chat-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .agent-header-info {
+    flex-grow: 1;
+  }
+
+  .menu-button {
+    display: flex;
+  }
+
+  .message-list {
+    padding: 1rem;
+  }
+
+  .message {
+    max-width: 90%;
+  }
+
+  .chat-form {
+    padding: 0.75rem;
+  }
+  
+  .history-sidebar {
+    width: 300px;
+  }
+
+  .modal-content {
+    padding: 1.5rem;
+    height: 90vh;
+    overflow-y: auto;
+  }
 }

@@ -112,6 +112,7 @@ const App = () => {
   const [chatMode, setChatMode] = useState<ChatMode>('default');
   const [isModesVisible, setIsModesVisible] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(false);
+  const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
 
   const [isNewAgentModalOpen, setIsNewAgentModalOpen] = useState(false);
@@ -368,6 +369,7 @@ const App = () => {
       setChatMode('default');
       resetInputFields();
       loadLatestConversation(agent.id, chatHistory);
+      setIsSidebarVisible(false);
     }
   };
   
@@ -459,10 +461,15 @@ const App = () => {
   // JSX Rendering
   return (
     <>
-      <div className={`app-container chat-mode-${chatMode} agent-${currentAgent.id} ${isHistoryVisible ? 'history-visible' : ''}`}>
+      <div className={`app-container chat-mode-${chatMode} agent-${currentAgent.id} ${isHistoryVisible ? 'history-visible' : ''} ${isSidebarVisible ? 'sidebar-visible' : ''}`}>
         <aside className="sidebar">
           <div className="sidebar-header">
-            <h1>Magal.AI</h1>
+            <div className="sidebar-header-top">
+                <h1>Magal.AI</h1>
+                <button className="close-sidebar-button" onClick={() => setIsSidebarVisible(false)} aria-label="Fechar menu de agentes">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
             <p className="app-description">Agentes de apoio à análise de perfis de usuários, capaz de mapear modelos mentais e realizar testes de pesquisas de experiência para auxiliar em decisões estratégicas.</p>
             <p className="agents-title">Agentes</p>
           </div>
@@ -486,6 +493,9 @@ const App = () => {
         </aside>
         <main className="chat-area">
           <header className="chat-header">
+            <button className="menu-button" onClick={() => setIsSidebarVisible(true)} aria-label="Abrir menu de agentes">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
             <div className="agent-header-info">
               <img src={currentAgent.avatar} alt={`${currentAgent.name} avatar`} className="avatar" />
               <h2 className="current-agent-name">{currentAgent.name}</h2>
@@ -675,6 +685,10 @@ const App = () => {
             </aside>
         )}
       </div>
+
+       {(isSidebarVisible) && (
+        <div className="mobile-overlay" onClick={() => setIsSidebarVisible(false)}></div>
+      )}
 
       {(isBulkAddModalOpen || isNewAgentModalOpen) && (
          <div className="modal-overlay" onClick={() => { setIsBulkAddModalOpen(false); setIsNewAgentModalOpen(false); }}>
