@@ -10,17 +10,6 @@ const createAvatarSvg = (letter: string, color: string) => {
     return `data:image/svg+xml;base64,${btoa(svg)}`;
 };
 
-const createGroupAvatarSvg = () => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="#6b7280">
-      <rect width="40" height="40" rx="20" fill="#e5e7eb"></rect>
-      <g transform="translate(2, 2) scale(0.8)">
-        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-      </g>
-    </svg>`;
-    return `data:image/svg+xml;base64,${btoa(svg)}`;
-};
-
-
 const INITIAL_AGENTS = [
     {
         id: "fernando",
@@ -62,7 +51,7 @@ Se for pedido que você responda a questionários e testes de usabilidade (perce
 
 // Type Definitions
 type Agent = { id: string; name: string; role: string; systemInstruction: string; avatar: string; color: string; }
-type Group = { id: string; name: string; agentIds: string[]; avatar: string; isGroup: true; }
+type Group = { id: string; name: string; agentIds: string[]; avatar: string; color: string; isGroup: true; }
 type ChatEntity = Agent | Group;
 type SurveyType = 'multiple-choice' | 'checkbox' | 'nps' | 'open-field';
 type UsabilityDevice = 'mobile-site' | 'app' | 'site';
@@ -170,8 +159,24 @@ const App = () => {
     
     const loadedAgents = savedAgents ? JSON.parse(savedAgents) : INITIAL_AGENTS;
     const loadedGroups = savedGroups ? JSON.parse(savedGroups) : [];
+    
+    // Migrate old groups to have a color and letter avatar
+    const migratedGroups = loadedGroups.map((group: any) => {
+        if (!group.color) { // Older groups won't have a color property
+            const firstLetter = group.name.trim().charAt(0).toUpperCase() || '?';
+            const colors = ['#E67D4E', '#010101', '#1C548F', '#0086FF', '#4a148c'];
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            return {
+                ...group,
+                color: randomColor,
+                avatar: createAvatarSvg(firstLetter, randomColor)
+            };
+        }
+        return group;
+    });
+
     setAgents(loadedAgents);
-    setGroups(loadedGroups);
+    setGroups(migratedGroups);
 
     const loadedHistory = savedHistory ? JSON.parse(savedHistory) : {};
     setChatHistory(loadedHistory);
@@ -506,11 +511,16 @@ const App = () => {
   const handleSaveNewGroup = () => {
     if (!newGroupName.trim() || selectedAgentIdsForGroup.size < 2) return;
 
+    const firstLetter = newGroupName.trim().charAt(0).toUpperCase() || '?';
+    const colors = ['#E67D4E', '#010101', '#1C548F', '#0086FF', '#4a148c'];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
     const newGroup: Group = {
       id: `group-${newGroupName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
       name: newGroupName,
       agentIds: Array.from(selectedAgentIdsForGroup),
-      avatar: createGroupAvatarSvg(),
+      avatar: createAvatarSvg(firstLetter, randomColor),
+      color: randomColor,
       isGroup: true,
     };
     
