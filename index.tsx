@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
 const createAvatarSvg = (letter: string, color: string) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
@@ -10,12 +10,24 @@ const createAvatarSvg = (letter: string, color: string) => {
     return `data:image/svg+xml;base64,${btoa(svg)}`;
 };
 
+const createGroupAvatarSvg = () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="#6b7280">
+      <rect width="40" height="40" rx="20" fill="#e5e7eb"></rect>
+      <g transform="translate(2, 2) scale(0.8)">
+        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+      </g>
+    </svg>`;
+    return `data:image/svg+xml;base64,${btoa(svg)}`;
+};
+
+
 const INITIAL_AGENTS = [
     {
         id: "fernando",
         name: "Fernando - Comprador desconfiado",
         role: "Comprador pragmático e cético",
         avatar: createAvatarSvg('F', '#010101'),
+        color: '#010101',
         systemInstruction: `Seu propósito é ajudar as pessoas a entenderem como funciona a mente de um comprador com seu perfil de compra, principalmente com relação aos desejos de compras, necessidades inerentes ao seu perfil de comprador, gatiligos de conversão (o que te motiva a finalizar uma compra) e sua percepção sobre a experiência utilizando o e-commerce/marketplace (experiência do usuário).
 
 Você não promove uma marca específica, sempre compara de maneira pragmática várias delas entre si para achar a melhor compra possível dentro das diferentes opções, estimulando as pessoas a também terem este senso crítico. No mais, justamente por conhecer bem múltiplos marketplaces, você também é transparente quando algo não parece fazer sentido ou funcionar em qualquer um deles.
@@ -35,6 +47,7 @@ No modo 'Entrevista de Profundidade', adote uma postura mais reflexiva e estrat�
         name: "Ana Souza - Amante da marca",
         role: "Promotora de marca e consumidora fiel",
         avatar: createAvatarSvg('A', '#E67D4E'),
+        color: '#E67D4E',
         systemInstruction: `Seu propósito é ajudar as pessoas a entenderem como funciona a mente de um comprador com seu perfil de compra. Você tem o perfil de comprador promotor da marca que gosta. Estimula e incentiva as pessoas que desconhecem da marca, a passarem a consumir. No mais, justamente por conhecer bem a marca, você também é transparente quando algo não parece fazer sentido ou funcionar.
 
 Interaja de maneira natural. Não responda nada de imediato sem ter sido pedido/mencionado. Entenda e explore o contexto das perguntas para que suas respostas sejam o mais acuradas e diretas possíveis. Tenha atenção ao contexto, ao que lhe é perguntado ou que seja pedido para ser feito durante as interações. As respostas que você dá, precisam ter começo, meio e fim relacionado com tudo que foi perguntado ou dito. Aperfeiçoe suas respostas. Seja simpática, mas também tenha coerência no que é dito.
@@ -48,7 +61,9 @@ const BASE_SYSTEM_INSTRUCTION = `Interaja de maneira natural. Não responda nada
 Se for pedido que você responda a questionários e testes de usabilidade (percepção de experiência), atente-se às regras, missões, tarefas e perguntas designadas. Suas interações e respostas precisam ser coerentes com o que é solicitado.`
 
 // Type Definitions
-type Agent = { id: string; name: string; role: string; systemInstruction: string; avatar: string; }
+type Agent = { id: string; name: string; role: string; systemInstruction: string; avatar: string; color: string; }
+type Group = { id: string; name: string; agentIds: string[]; avatar: string; isGroup: true; }
+type ChatEntity = Agent | Group;
 type SurveyType = 'multiple-choice' | 'checkbox' | 'nps' | 'open-field';
 type UsabilityDevice = 'mobile-site' | 'app' | 'site';
 type ApiImage = { base64: string; mimeType: string };
@@ -67,6 +82,7 @@ type Message = {
     npsMinLabel?: string;
     npsMaxLabel?: string;
   }
+  agentId?: string;
 };
 type ChatMode = 'default' | 'interview' | 'questionnaire' | 'usability' | 'realization';
 type Conversation = {
@@ -103,7 +119,8 @@ const usabilityDevices: { id: UsabilityDevice; label: string }[] = [
 const App = () => {
   const [ai, setAi] = useState<GoogleGenAI | null>(null);
   const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
-  const [currentAgent, setCurrentAgent] = useState<Agent>(agents[0]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [currentEntity, setCurrentEntity] = useState<ChatEntity>(agents[0]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistory>({});
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -122,6 +139,10 @@ const App = () => {
   const [newAgentRole, setNewAgentRole] = useState('');
   const [newAgentDescription, setNewAgentDescription] = useState('');
   const [isAgentHelpModalOpen, setIsAgentHelpModalOpen] = useState(false);
+
+  const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedAgentIdsForGroup, setSelectedAgentIdsForGroup] = useState<Set<string>>(new Set());
 
   const [surveyType, setSurveyType] = useState<SurveyType>('multiple-choice');
   const [surveyQuestion, setSurveyQuestion] = useState('');
@@ -144,24 +165,31 @@ const App = () => {
     catch (e) { console.error(e); setError("Failed to initialize the AI agent. Please check the API key."); }
 
     const savedAgents = localStorage.getItem('magal-ai-agents');
+    const savedGroups = localStorage.getItem('magal-ai-groups');
     const savedHistory = localStorage.getItem('magal-ai-chat-history');
     
     const loadedAgents = savedAgents ? JSON.parse(savedAgents) : INITIAL_AGENTS;
+    const loadedGroups = savedGroups ? JSON.parse(savedGroups) : [];
     setAgents(loadedAgents);
+    setGroups(loadedGroups);
 
     const loadedHistory = savedHistory ? JSON.parse(savedHistory) : {};
     setChatHistory(loadedHistory);
     
     // Set initial agent and load their most recent conversation
-    const initialAgent = loadedAgents[0];
-    setCurrentAgent(initialAgent);
-    loadLatestConversation(initialAgent.id, loadedHistory);
+    const initialEntity = loadedAgents[0];
+    setCurrentEntity(initialEntity);
+    loadLatestConversation(initialEntity.id, loadedHistory);
 
   }, []);
 
   useEffect(() => {
     localStorage.setItem('magal-ai-agents', JSON.stringify(agents));
   }, [agents]);
+  
+  useEffect(() => {
+    localStorage.setItem('magal-ai-groups', JSON.stringify(groups));
+  }, [groups]);
 
   useEffect(() => {
     localStorage.setItem('magal-ai-chat-history', JSON.stringify(chatHistory));
@@ -174,16 +202,16 @@ const App = () => {
   }, [messages, isLoading, isTyping]);
   
   useEffect(() => {
-    const conversation = chatHistory[currentAgent.id]?.find(c => c.id === currentConversationId);
+    const conversation = chatHistory[currentEntity.id]?.find(c => c.id === currentConversationId);
     setMessages(conversation ? conversation.messages : []);
-  }, [currentConversationId, chatHistory, currentAgent.id]);
+  }, [currentConversationId, chatHistory, currentEntity.id]);
 
   // Core Logic Functions
   const addMessageToHistory = (newMessage: Message, isModelStreaming = false) => {
     setChatHistory(prevHistory => {
         const newHistory = { ...prevHistory };
-        const agentConversations = newHistory[currentAgent.id] ? [...newHistory[currentAgent.id]] : [];
-        const conversationIndex = agentConversations.findIndex(c => c.id === currentConversationId);
+        const entityConversations = newHistory[currentEntity.id] ? [...newHistory[currentEntity.id]] : [];
+        const conversationIndex = entityConversations.findIndex(c => c.id === currentConversationId);
         
         if (conversationIndex === -1 || !currentConversationId) {
             console.error("No active conversation to add message to.");
@@ -191,80 +219,125 @@ const App = () => {
         }
 
         let newMessages;
-        const currentMessages = agentConversations[conversationIndex].messages;
+        const currentMessages = entityConversations[conversationIndex].messages;
 
         if (isModelStreaming && currentMessages[currentMessages.length - 1]?.role === 'model') {
-            // Append to the last model message
             newMessages = [...currentMessages.slice(0, -1), newMessage];
         } else {
-            // Add a new message
             newMessages = [...currentMessages, newMessage];
         }
         
-        agentConversations[conversationIndex] = {
-            ...agentConversations[conversationIndex],
+        entityConversations[conversationIndex] = {
+            ...entityConversations[conversationIndex],
             messages: newMessages,
-            timestamp: Date.now() // Update timestamp on new message
+            timestamp: Date.now()
         };
 
-        newHistory[currentAgent.id] = agentConversations;
+        newHistory[currentEntity.id] = entityConversations;
         return newHistory;
     });
   };
 
-  const streamResponse = async () => {
-    const currentMessages = chatHistory[currentAgent.id]?.find(c => c.id === currentConversationId)?.messages || [];
+  const getResponse = async () => {
+    const currentMessages = chatHistory[currentEntity.id]?.find(c => c.id === currentConversationId)?.messages || [];
     if (isLoading || !ai || currentMessages.length === 0) return;
 
     setIsLoading(true);
     setIsTyping(true);
     setError(null);
+    
+    const isGroup = 'isGroup' in currentEntity && currentEntity.isGroup;
 
     const contents = currentMessages.map(msg => {
         const parts = [];
         if (msg.apiImage) {
             parts.push({
-                inlineData: {
-                    data: msg.apiImage.base64,
-                    mimeType: msg.apiImage.mimeType,
-                }
+                inlineData: { data: msg.apiImage.base64, mimeType: msg.apiImage.mimeType }
             });
         }
         parts.push({ text: msg.text || '' });
         return { role: msg.role, parts };
     });
 
-    try {
-        const responseStream = await ai.models.generateContentStream({
+    if (isGroup) {
+      const groupAgents = agents.filter(agent => currentEntity.agentIds.includes(agent.id));
+      const agentDescriptions = groupAgents.map(a => `- ${a.name}: ${a.role}`).join('\n');
+      const systemInstruction = `Você é um moderador de um bate-papo em grupo. O usuário está conversando com um grupo de agentes. Sua tarefa é facilitar a conversa e gerar uma única resposta consolidada que represente um diálogo entre os agentes. Para CADA parte da resposta, você DEVE prefixá-la com o nome completo do agente em colchetes, como "[Fernando - Comprador desconfiado]: ...". A resposta de cada agente DEVE começar em uma nova linha.\n\nOs agentes neste grupo são:\n${agentDescriptions}\n\nResponda à pergunta do usuário simulando uma discussão entre eles, seguindo estritamente o formato de prefixo.`;
+      
+      try {
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: contents,
-            config: { systemInstruction: currentAgent.systemInstruction },
+            config: { systemInstruction: systemInstruction },
         });
 
-        let modelResponse = '';
-        let initialTimestamp: number | null = null;
-        for await (const chunk of responseStream) {
-            if (isTyping) setIsTyping(false); // Hide typing indicator on first chunk
-            if (initialTimestamp === null) {
-                initialTimestamp = Date.now();
-            }
-            modelResponse += chunk.text;
-            const currentModelMessage = { role: 'model', text: modelResponse, timestamp: initialTimestamp } as Message;
-            addMessageToHistory(currentModelMessage, true);
+        setIsTyping(false);
+
+        const fullResponseText = response.text;
+        const groupParts: { agentName: string; text: string; }[] = [];
+        const regex = /\[([^\]]+)\]:\s*([\s\S]*?)(?=\n\[|$)/g;
+        let match;
+        while ((match = regex.exec(fullResponseText)) !== null) {
+            groupParts.push({ agentName: match[1].trim(), text: match[2].trim() });
         }
-    } catch (e) {
+
+        if (groupParts.length > 0) {
+            for (const part of groupParts) {
+                const agent = agents.find(a => a.name === part.agentName);
+                if (agent && part.text) {
+                    const newMessage: Message = {
+                        role: 'model',
+                        text: part.text,
+                        timestamp: Date.now(),
+                        agentId: agent.id
+                    };
+                    addMessageToHistory(newMessage);
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sec delay
+                }
+            }
+        } else if (fullResponseText) { // Fallback for unstructured response
+            addMessageToHistory({ role: 'model', text: fullResponseText, timestamp: Date.now() });
+        }
+
+      } catch (e) {
         console.error(e);
-        setError("An error occurred while getting a response. Please try again.");
-    } finally {
+        setError("An error occurred while getting a response from the group. Please try again.");
+      } finally {
         setIsLoading(false);
         setIsTyping(false);
+      }
+    } else {
+      // Non-group streaming response
+      const systemInstruction = (currentEntity as Agent).systemInstruction;
+      try {
+          const responseStream = await ai.models.generateContentStream({
+              model: 'gemini-2.5-flash',
+              contents: contents,
+              config: { systemInstruction: systemInstruction },
+          });
+
+          let modelResponse = '';
+          let initialTimestamp: number | null = null;
+          for await (const chunk of responseStream) {
+              if (isTyping) setIsTyping(false); 
+              if (initialTimestamp === null) initialTimestamp = Date.now();
+              modelResponse += chunk.text;
+              addMessageToHistory({ role: 'model', text: modelResponse, timestamp: initialTimestamp }, true);
+          }
+      } catch (e) {
+          console.error(e);
+          setError("An error occurred while getting a response. Please try again.");
+      } finally {
+          setIsLoading(false);
+          setIsTyping(false);
+      }
     }
   };
 
   useEffect(() => {
-    const currentConvo = chatHistory[currentAgent.id]?.find(c => c.id === currentConversationId);
+    const currentConvo = chatHistory[currentEntity.id]?.find(c => c.id === currentConversationId);
     if (currentConvo && currentConvo.messages.length > 0 && currentConvo.messages[currentConvo.messages.length - 1].role === 'user' && !isLoading) {
-        streamResponse();
+        getResponse();
     }
   }, [chatHistory, currentConversationId, isLoading]);
 
@@ -273,7 +346,7 @@ const App = () => {
     e.preventDefault();
     let userMessage: Message | null = null;
 
-    if (chatMode === 'usability') {
+    if (!('isGroup' in currentEntity) && chatMode === 'usability') {
         if (!usabilityContext.trim() || !usabilityMission.trim() || !usabilityDevice) return;
         const deviceLabel = usabilityDevices.find(d => d.id === usabilityDevice)?.label || '';
         const textToSend = `Dispositivo: ${deviceLabel}\n\nContexto: ${usabilityContext}\n\nMissão: ${usabilityMission}`;
@@ -283,7 +356,7 @@ const App = () => {
         setUsabilityDevice(null);
     } else {
         if (!userInput.trim() && !selectedImage) return;
-        if (chatMode === 'realization' && selectedImage) {
+        if (!('isGroup' in currentEntity) && chatMode === 'realization' && selectedImage) {
             userMessage = { 
                 role: 'user', 
                 text: userInput,
@@ -323,21 +396,21 @@ const App = () => {
 
     setChatHistory(prev => ({
         ...prev,
-        [currentAgent.id]: [newConversation, ...(prev[currentAgent.id] || [])]
+        [currentEntity.id]: [newConversation, ...(prev[currentEntity.id] || [])]
     }));
     setCurrentConversationId(newConversation.id);
     resetInputFields();
     setIsHistoryVisible(false);
   };
 
-  const loadLatestConversation = (agentId: string, history: ChatHistory) => {
-    const agentConversations = history[agentId] || [];
-    if (agentConversations.length > 0) {
-        const sortedConversations = [...agentConversations].sort((a, b) => b.timestamp - a.timestamp);
+  const loadLatestConversation = (entityId: string, history: ChatHistory) => {
+    const entityConversations = history[entityId] || [];
+    if (entityConversations.length > 0) {
+        const sortedConversations = [...entityConversations].sort((a, b) => b.timestamp - a.timestamp);
         setCurrentConversationId(sortedConversations[0].id);
     } else {
         const newConversation: Conversation = { id: `convo-${Date.now()}`, timestamp: Date.now(), messages: [] };
-        setChatHistory(prev => ({ ...prev, [agentId]: [newConversation] }));
+        setChatHistory(prev => ({ ...prev, [entityId]: [newConversation] }));
         setCurrentConversationId(newConversation.id);
     }
   };
@@ -361,8 +434,6 @@ const App = () => {
     setChatMode(mode);
     
     if (mode === 'interview') {
-        // For interview mode, create a new empty conversation.
-        // The UI will then show a prompt for topics.
         handleStartNewConversation();
     } else {
         const initialMessage: Message | undefined = initialMessageText
@@ -372,12 +443,12 @@ const App = () => {
     }
   };
 
-  const handleAgentChange = (agent: Agent) => {
-    if (agent.id !== currentAgent.id) {
-      setCurrentAgent(agent);
+  const handleEntityChange = (entity: ChatEntity) => {
+    if (entity.id !== currentEntity.id) {
+      setCurrentEntity(entity);
       setChatMode('default');
       resetInputFields();
-      loadLatestConversation(agent.id, chatHistory);
+      loadLatestConversation(entity.id, chatHistory);
       setIsSidebarVisible(false);
     }
   };
@@ -407,17 +478,50 @@ const App = () => {
         name: newAgentName,
         role: newAgentRole,
         avatar: createAvatarSvg(firstLetter, randomColor),
+        color: randomColor,
         systemInstruction: newSystemInstruction
     };
 
     setAgents(prev => [...prev, newAgent]);
     setChatHistory(prev => ({ ...prev, [newAgent.id]: [] }));
-    handleAgentChange(newAgent);
+    handleEntityChange(newAgent);
     setIsNewAgentModalOpen(false);
     setNewAgentName('');
     setNewAgentRole('');
     setNewAgentDescription('');
   }
+
+  const handleAgentSelectionForGroup = (agentId: string) => {
+    setSelectedAgentIdsForGroup(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(agentId)) {
+        newSet.delete(agentId);
+      } else {
+        newSet.add(agentId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSaveNewGroup = () => {
+    if (!newGroupName.trim() || selectedAgentIdsForGroup.size < 2) return;
+
+    const newGroup: Group = {
+      id: `group-${newGroupName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+      name: newGroupName,
+      agentIds: Array.from(selectedAgentIdsForGroup),
+      avatar: createGroupAvatarSvg(),
+      isGroup: true,
+    };
+    
+    setGroups(prev => [...prev, newGroup]);
+    setChatHistory(prev => ({ ...prev, [newGroup.id]: [] }));
+    handleEntityChange(newGroup);
+
+    setIsNewGroupModalOpen(false);
+    setNewGroupName('');
+    setSelectedAgentIdsForGroup(new Set());
+  };
 
   const handleSurveySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -465,12 +569,14 @@ const App = () => {
   const showNpsScale = surveyType === 'nps';
   const isSurveyFormValid = surveyQuestion.trim() && ( !showOptions || surveyOptions.every(opt => opt.trim()) ) && ( !showNpsScale || (npsMinLabel.trim() && npsMaxLabel.trim()) );
   const isNewAgentFormValid = newAgentName.trim() && newAgentRole.trim() && newAgentDescription.trim();
-  const agentConversations = (chatHistory[currentAgent.id] || []).sort((a, b) => b.timestamp - a.timestamp);
+  const isNewGroupFormValid = newGroupName.trim() && selectedAgentIdsForGroup.size >= 2;
+  const agentConversations = (chatHistory[currentEntity.id] || []).sort((a, b) => b.timestamp - a.timestamp);
+  const isGroupChat = 'isGroup' in currentEntity && currentEntity.isGroup;
 
   // JSX Rendering
   return (
     <>
-      <div className={`app-container chat-mode-${chatMode} agent-${currentAgent.id} ${isHistoryVisible ? 'history-visible' : ''} ${isSidebarVisible ? 'sidebar-visible' : ''}`}>
+      <div className={`app-container chat-mode-${chatMode} agent-${currentEntity.id} ${isHistoryVisible ? 'history-visible' : ''} ${isSidebarVisible ? 'sidebar-visible' : ''}`}>
         <aside className="sidebar">
           <div className="sidebar-header">
             <div className="sidebar-header-top">
@@ -480,23 +586,45 @@ const App = () => {
                 </button>
             </div>
             <p className="app-description">Agentes de apoio à análise de perfis de usuários, capaz de mapear modelos mentais e realizar testes de pesquisas de experiência para auxiliar em decisões estratégicas.</p>
-            <p className="agents-title">Agentes</p>
           </div>
           <div className="agent-list">
-            {agents.map(agent => (
-              <button
-                key={agent.id}
-                className={`agent-item ${currentAgent.id === agent.id ? 'active' : ''}`}
-                onClick={() => handleAgentChange(agent)}
-                disabled={isLoading}
-              >
-                <img src={agent.avatar} alt={`${agent.name} avatar`} className="avatar" />
-                <div className="agent-info">
-                    <span className="agent-name">{agent.name}</span>
-                    <span className="agent-role">{agent.role}</span>
+             <div className="sidebar-section">
+                <p className="sidebar-section-title">Agentes</p>
+                {agents.map(agent => (
+                  <button
+                    key={agent.id}
+                    className={`agent-item ${currentEntity.id === agent.id ? 'active' : ''}`}
+                    onClick={() => handleEntityChange(agent)}
+                    disabled={isLoading}
+                  >
+                    <img src={agent.avatar} alt={`${agent.name} avatar`} className="avatar" />
+                    <div className="agent-info">
+                        <span className="agent-name">{agent.name}</span>
+                        <span className="agent-role">{agent.role}</span>
+                    </div>
+                  </button>
+                ))}
+             </div>
+             <div className="sidebar-section">
+                <p className="sidebar-section-title">Grupos</p>
+                <div className="sidebar-section-content">
+                    {groups.map(group => (
+                      <button
+                        key={group.id}
+                        className={`agent-item ${currentEntity.id === group.id ? 'active' : ''}`}
+                        onClick={() => handleEntityChange(group)}
+                        disabled={isLoading}
+                      >
+                        <img src={group.avatar} alt={`${group.name} avatar`} className="avatar" />
+                        <div className="agent-info">
+                            <span className="agent-name">{group.name}</span>
+                            <span className="agent-role">{group.agentIds.length} agentes</span>
+                        </div>
+                      </button>
+                    ))}
+                    <button className="create-group-button" onClick={() => setIsNewGroupModalOpen(true)}>+ Criar novo grupo</button>
                 </div>
-              </button>
-            ))}
+             </div>
           </div>
            <div className="sidebar-footer">
                 <button onClick={() => setIsAgentHelpModalOpen(true)}>
@@ -511,72 +639,83 @@ const App = () => {
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
             <div className="agent-header-info">
-              <img src={currentAgent.avatar} alt={`${currentAgent.name} avatar`} className="avatar" />
-              <h2 className="current-agent-name">{currentAgent.name}</h2>
+              <img src={currentEntity.avatar} alt={`${currentEntity.name} avatar`} className="avatar" />
+              <h2 className="current-agent-name">{currentEntity.name}</h2>
             </div>
             <button className="history-button" onClick={() => setIsHistoryVisible(true)} aria-label="Ver histórico de conversas">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
             </button>
           </header>
-          <div className="modes-header">
-            <button
-              className="modes-toggle" onClick={() => setIsModesVisible(!isModesVisible)}
-              aria-expanded={isModesVisible} aria-controls="modes-content"
-            >
-              <h2>Modos de conversa</h2>
-              <span className="chevron-icon" aria-hidden="true" />
-            </button>
-            <div id="modes-content" className={`modes-content-wrapper ${isModesVisible ? 'expanded' : ''}`}>
-              <div className="modes-content-inner">
-                <p>Cada modo, ativa uma maneira de interagir com o agente.</p>
-                <div className="filter-buttons">
-                  {chatModes.map((item) => (
-                    <button
-                      key={item.mode}
-                      className={`filter-button ${chatMode === item.mode ? 'active' : ''}`}
-                      onClick={() => handleModeSelect(item.mode, item.initialMessage)}
-                      disabled={isLoading}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
+         {!isGroupChat && (
+              <div className="modes-header">
+                <button
+                  className="modes-toggle" onClick={() => setIsModesVisible(!isModesVisible)}
+                  aria-expanded={isModesVisible} aria-controls="modes-content"
+                >
+                  <h2>Modos de conversa</h2>
+                  <span className="chevron-icon" aria-hidden="true" />
+                </button>
+                <div id="modes-content" className={`modes-content-wrapper ${isModesVisible ? 'expanded' : ''}`}>
+                  <div className="modes-content-inner">
+                    <p>Cada modo, ativa uma maneira de interagir com o agente.</p>
+                    <div className="filter-buttons">
+                      {chatModes.map((item) => (
+                        <button
+                          key={item.mode}
+                          className={`filter-button ${chatMode === item.mode ? 'active' : ''}`}
+                          onClick={() => handleModeSelect(item.mode, item.initialMessage)}
+                          disabled={isLoading}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
+          )}
           {error && <div className="error-message">{error}</div>}
           <div className="message-list" ref={messageListRef}>
-            {messages.map((msg, index) => (
-              <div key={index} className={`message ${msg.role} ${msg.isSurvey ? 'survey' : ''}`}>
-                 {msg.role === 'model' && <img src={currentAgent.avatar} alt="model avatar" className="avatar" />}
-                <div className="content">
-                {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
-                {msg.isSurvey && msg.surveyData ? (
-                    <div className="survey-display">
-                        <span className="survey-type-badge">{surveyTypes.find(st => st.value === msg.surveyData.type)?.label}</span>
-                        <h4>{msg.surveyData.question}</h4>
-                        {msg.surveyData.options && <ul>{msg.surveyData.options.map((opt, i) => <li key={i}>{opt}</li>)}</ul>}
-                        {msg.surveyData.npsScale && (
-                          <div className="survey-nps-scale-display">
-                              <div className="nps-scale-point"><strong>{msg.surveyData.npsScale.min}</strong> - {msg.surveyData.npsMinLabel}</div>
-                              <div className="nps-scale-point"><strong>{msg.surveyData.npsScale.max}</strong> - {msg.surveyData.npsMaxLabel}</div>
-                          </div>
-                        )}
+            {messages.map((msg, index) => {
+               const agent = msg.agentId ? agents.find(a => a.id === msg.agentId) : null;
+               const avatarSrc = agent ? agent.avatar : (msg.role === 'model' ? currentEntity.avatar : '');
+               const agentName = agent ? agent.name.split(' - ')[0] : null;
+
+              return (
+                <div key={index} className={`message ${msg.role} ${msg.isSurvey ? 'survey' : ''}`}>
+                  {msg.role === 'model' && <img src={avatarSrc} alt="model avatar" className="avatar" />}
+                  <div className="message-content-wrapper">
+                    {agentName && <span className="message-agent-name" style={{ color: agent?.color }}>{agentName}</span>}
+                    <div className="content">
+                      {msg.image && <img src={msg.image} alt="User upload" className="message-image" />}
+                      {msg.isSurvey && msg.surveyData ? (
+                        <div className="survey-display">
+                            <span className="survey-type-badge">{surveyTypes.find(st => st.value === msg.surveyData.type)?.label}</span>
+                            <h4>{msg.surveyData.question}</h4>
+                            {msg.surveyData.options && <ul>{msg.surveyData.options.map((opt, i) => <li key={i}>{opt}</li>)}</ul>}
+                            {msg.surveyData.npsScale && (
+                              <div className="survey-nps-scale-display">
+                                  <div className="nps-scale-point"><strong>{msg.surveyData.npsScale.min}</strong> - {msg.surveyData.npsMinLabel}</div>
+                                  <div className="nps-scale-point"><strong>{msg.surveyData.npsScale.max}</strong> - {msg.surveyData.npsMaxLabel}</div>
+                              </div>
+                            )}
+                        </div>
+                      ) : ( msg.text )}
+                      <span className="timestamp">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                    ) : ( msg.text )}
-                    <span className="timestamp">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
              {isTyping && (
               <div className="message model">
-                 <img src={currentAgent.avatar} alt="model avatar" className="avatar" />
+                 <img src={currentEntity.avatar} alt="model avatar" className="avatar" />
                 <div className="content loading-indicator"><span></span><span></span><span></span></div>
               </div>
             )}
           </div>
 
-          {chatMode === 'interview' && messages.length === 0 ? (
+          { !isGroupChat && chatMode === 'interview' && messages.length === 0 ? (
             <form className="chat-form interview-topic-form" onSubmit={handleStartInterview}>
                 <div className="input-group">
                     <label htmlFor="interview-topics">Quais tópicos ou áreas específicas você gostaria de abordar na entrevista?</label>
@@ -591,7 +730,7 @@ const App = () => {
                 </div>
                 <button type="submit" disabled={isLoading || !ai}>Iniciar Entrevista</button>
             </form>
-          ) : chatMode === 'questionnaire' ? (
+          ) : !isGroupChat && chatMode === 'questionnaire' ? (
             <form className="chat-form survey-form" onSubmit={handleSurveySubmit}>
                 <select 
                   className="survey-type-select" value={surveyType}
@@ -642,7 +781,7 @@ const App = () => {
                     <button type="submit" disabled={isLoading || !isSurveyFormValid} className="send-survey-button">Enviar Enquete</button>
                 </div>
             </form>
-          ) : chatMode === 'usability' ? (
+          ) : !isGroupChat && chatMode === 'usability' ? (
             <form className="chat-form usability-mission-form" onSubmit={handleFormSubmit}>
                 <div className="usability-device-filters">
                   {usabilityDevices.map(device => (
@@ -656,7 +795,7 @@ const App = () => {
                 <div className="input-group"><label htmlFor="usability-mission">Missão</label><input id="usability-mission" type="text" value={usabilityMission} onChange={(e) => setUsabilityMission(e.target.value)} placeholder="Descreva a missão para o agente..." disabled={isLoading || !ai} /></div>
                 <button type="submit" disabled={isLoading || !usabilityContext.trim() || !usabilityMission.trim() || !usabilityDevice || !ai}>Send</button>
             </form>
-          ) : chatMode === 'realization' ? (
+          ) : !isGroupChat && chatMode === 'realization' ? (
             <form className="chat-form usability-form" onSubmit={handleFormSubmit}>
               {selectedImage && (<div className="image-preview-container"><img src={selectedImage.dataUrl} alt="Preview" className="image-preview" /><button type="button" onClick={() => setSelectedImage(null)} className="remove-image-button" aria-label="Remove image">&times;</button></div>)}
               <div className="usability-input-row">
@@ -705,8 +844,8 @@ const App = () => {
         <div className="mobile-overlay" onClick={() => setIsSidebarVisible(false)}></div>
       )}
 
-      {(isBulkAddModalOpen || isNewAgentModalOpen || isAgentHelpModalOpen) && (
-         <div className="modal-overlay" onClick={() => { setIsBulkAddModalOpen(false); setIsNewAgentModalOpen(false); setIsAgentHelpModalOpen(false); }}>
+      {(isBulkAddModalOpen || isNewAgentModalOpen || isAgentHelpModalOpen || isNewGroupModalOpen) && (
+         <div className="modal-overlay" onClick={() => { setIsBulkAddModalOpen(false); setIsNewAgentModalOpen(false); setIsAgentHelpModalOpen(false); setIsNewGroupModalOpen(false); }}>
             {isBulkAddModalOpen && (
               <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                   <h3>Adicionar opções em massa</h3>
@@ -729,6 +868,36 @@ const App = () => {
                   <div className="modal-actions">
                       <button onClick={() => setIsNewAgentModalOpen(false)} className="modal-button-cancel">Cancelar</button>
                       <button onClick={handleSaveNewAgent} className="modal-button-confirm" disabled={!isNewAgentFormValid}>Salvar</button>
+                  </div>
+              </div>
+            )}
+             {isNewGroupModalOpen && (
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                  <h3>Criar Novo Grupo</h3>
+                  <div className="modal-form">
+                    <div className="modal-input-group">
+                        <label htmlFor="new-group-name">Nome do grupo</label>
+                        <input id="new-group-name" type="text" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} />
+                    </div>
+                    <div className="modal-input-group">
+                        <label>Selecionar Agentes (mínimo 2)</label>
+                        <div className="group-agent-selection-list">
+                            {agents.map(agent => (
+                                <label key={agent.id} className="agent-checkbox-label">
+                                    <input type="checkbox" checked={selectedAgentIdsForGroup.has(agent.id)} onChange={() => handleAgentSelectionForGroup(agent.id)} />
+                                    <img src={agent.avatar} alt={agent.name} className="avatar" />
+                                    <div className="agent-info">
+                                        <span className="agent-name">{agent.name}</span>
+                                        <span className="agent-role">{agent.role}</span>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                  </div>
+                  <div className="modal-actions">
+                      <button onClick={() => setIsNewGroupModalOpen(false)} className="modal-button-cancel">Cancelar</button>
+                      <button onClick={handleSaveNewGroup} className="modal-button-confirm" disabled={!isNewGroupFormValid}>Salvar Grupo</button>
                   </div>
               </div>
             )}
