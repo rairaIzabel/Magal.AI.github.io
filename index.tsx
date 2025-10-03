@@ -55,6 +55,7 @@ type ApiImage = { base64: string; mimeType: string };
 type Message = {
   role: 'user' | 'model';
   text: string;
+  timestamp: number;
   image?: string;
   apiImage?: ApiImage;
   isSurvey?: boolean;
@@ -108,6 +109,7 @@ const App = () => {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chatMode, setChatMode] = useState<ChatMode>('default');
   const [isModesVisible, setIsModesVisible] = useState(false);
@@ -119,6 +121,7 @@ const App = () => {
   const [newAgentName, setNewAgentName] = useState('');
   const [newAgentRole, setNewAgentRole] = useState('');
   const [newAgentDescription, setNewAgentDescription] = useState('');
+  const [isAgentHelpModalOpen, setIsAgentHelpModalOpen] = useState(false);
 
   const [surveyType, setSurveyType] = useState<SurveyType>('multiple-choice');
   const [surveyQuestion, setSurveyQuestion] = useState('');
@@ -168,7 +171,7 @@ const App = () => {
     if (messageListRef.current) {
         messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, isTyping]);
   
   useEffect(() => {
     const conversation = chatHistory[currentAgent.id]?.find(c => c.id === currentConversationId);
@@ -214,6 +217,7 @@ const App = () => {
     if (isLoading || !ai || currentMessages.length === 0) return;
 
     setIsLoading(true);
+    setIsTyping(true);
     setError(null);
 
     const contents = currentMessages.map(msg => {
@@ -231,8 +235,6 @@ const App = () => {
     });
 
     try {
-        addMessageToHistory({ role: 'model', text: '' });
-
         const responseStream = await ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: contents,
@@ -240,9 +242,14 @@ const App = () => {
         });
 
         let modelResponse = '';
+        let initialTimestamp: number | null = null;
         for await (const chunk of responseStream) {
+            if (isTyping) setIsTyping(false); // Hide typing indicator on first chunk
+            if (initialTimestamp === null) {
+                initialTimestamp = Date.now();
+            }
             modelResponse += chunk.text;
-            const currentModelMessage = { role: 'model', text: modelResponse } as Message;
+            const currentModelMessage = { role: 'model', text: modelResponse, timestamp: initialTimestamp } as Message;
             addMessageToHistory(currentModelMessage, true);
         }
     } catch (e) {
@@ -250,6 +257,7 @@ const App = () => {
         setError("An error occurred while getting a response. Please try again.");
     } finally {
         setIsLoading(false);
+        setIsTyping(false);
     }
   };
 
@@ -269,7 +277,7 @@ const App = () => {
         if (!usabilityContext.trim() || !usabilityMission.trim() || !usabilityDevice) return;
         const deviceLabel = usabilityDevices.find(d => d.id === usabilityDevice)?.label || '';
         const textToSend = `Dispositivo: ${deviceLabel}\n\nContexto: ${usabilityContext}\n\nMissão: ${usabilityMission}`;
-        userMessage = { role: 'user', text: textToSend };
+        userMessage = { role: 'user', text: textToSend, timestamp: Date.now() };
         setUsabilityContext('');
         setUsabilityMission('');
         setUsabilityDevice(null);
@@ -279,12 +287,13 @@ const App = () => {
             userMessage = { 
                 role: 'user', 
                 text: userInput,
+                timestamp: Date.now(),
                 image: selectedImage.dataUrl,
                 apiImage: { base64: selectedImage.base64, mimeType: selectedImage.mimeType }
             };
             setSelectedImage(null);
         } else {
-            userMessage = { role: 'user', text: userInput };
+            userMessage = { role: 'user', text: userInput, timestamp: Date.now() };
         }
         setUserInput('');
     }
@@ -295,11 +304,11 @@ const App = () => {
   const handleStartInterview = (e: React.FormEvent) => {
     e.preventDefault();
     if (!interviewTopics.trim()) {
-        const initialMessage: Message = { role: 'user', text: 'Gostaria de fazer uma entrevista contigo.' };
+        const initialMessage: Message = { role: 'user', text: 'Gostaria de fazer uma entrevista contigo.', timestamp: Date.now() };
         addMessageToHistory(initialMessage);
     } else {
         const initialMessageText = `Gostaria de fazer una entrevista contigo. Vamos focar no(s) seguinte(s) assunto(s): ${interviewTopics}`;
-        const initialMessage: Message = { role: 'user', text: initialMessageText };
+        const initialMessage: Message = { role: 'user', text: initialMessageText, timestamp: Date.now() };
         addMessageToHistory(initialMessage);
     }
     setInterviewTopics('');
@@ -357,7 +366,7 @@ const App = () => {
         handleStartNewConversation();
     } else {
         const initialMessage: Message | undefined = initialMessageText
-            ? { role: 'user', text: initialMessageText }
+            ? { role: 'user', text: initialMessageText, timestamp: Date.now() }
             : undefined;
         handleStartNewConversation(initialMessage);
     }
@@ -433,7 +442,7 @@ const App = () => {
             break;
     }
     
-    const userMessage: Message = { role: 'user', text: prompt, isSurvey: true, surveyData: surveyDataForMessage };
+    const userMessage: Message = { role: 'user', text: prompt, isSurvey: true, surveyData: surveyDataForMessage, timestamp: Date.now() };
     addMessageToHistory(userMessage);
     setSurveyQuestion('');
     setSurveyOptions(['', '']);
@@ -489,6 +498,11 @@ const App = () => {
               </button>
             ))}
           </div>
+           <div className="sidebar-footer">
+                <button onClick={() => setIsAgentHelpModalOpen(true)}>
+                    Como criar a descrição de um agente
+                </button>
+            </div>
           <button className="add-agent-button" onClick={() => setIsNewAgentModalOpen(true)} aria-label="Criar novo agente">+</button>
         </aside>
         <main className="chat-area">
@@ -550,10 +564,11 @@ const App = () => {
                         )}
                     </div>
                     ) : ( msg.text )}
+                    <span className="timestamp">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               </div>
             ))}
-             {isLoading && messages.length > 0 && messages[messages.length -1]?.role === 'user' && (
+             {isTyping && (
               <div className="message model">
                  <img src={currentAgent.avatar} alt="model avatar" className="avatar" />
                 <div className="content loading-indicator"><span></span><span></span><span></span></div>
@@ -690,8 +705,8 @@ const App = () => {
         <div className="mobile-overlay" onClick={() => setIsSidebarVisible(false)}></div>
       )}
 
-      {(isBulkAddModalOpen || isNewAgentModalOpen) && (
-         <div className="modal-overlay" onClick={() => { setIsBulkAddModalOpen(false); setIsNewAgentModalOpen(false); }}>
+      {(isBulkAddModalOpen || isNewAgentModalOpen || isAgentHelpModalOpen) && (
+         <div className="modal-overlay" onClick={() => { setIsBulkAddModalOpen(false); setIsNewAgentModalOpen(false); setIsAgentHelpModalOpen(false); }}>
             {isBulkAddModalOpen && (
               <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                   <h3>Adicionar opções em massa</h3>
@@ -715,6 +730,20 @@ const App = () => {
                       <button onClick={() => setIsNewAgentModalOpen(false)} className="modal-button-cancel">Cancelar</button>
                       <button onClick={handleSaveNewAgent} className="modal-button-confirm" disabled={!isNewAgentFormValid}>Salvar</button>
                   </div>
+              </div>
+            )}
+            {isAgentHelpModalOpen && (
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <h3>Como criar a descrição de um agente</h3>
+                <p>Siga esta estrutura para criar descrições de agentes eficazes:</p>
+                <ul>
+                  <li><strong>Propósito:</strong> Comece com um parágrafo claro descrevendo o propósito principal do agente. O que ele deve ajudar o usuário a alcançar?</li>
+                  <li><strong>Personalidade:</strong> Em seguida, descreva a personalidade, as características e o tom de voz do agente. Ele é formal ou casual? Cético ou entusiasta? Dê vida a ele.</li>
+                  <li><strong>Comportamento:</strong> Por fim, defina como o agente deve agir. Inclua coordenadas sobre o que fazer e o que não fazer, como controlar enviesamentos e garantir respostas naturais e coerentes.</li>
+                </ul>
+                <div className="modal-actions">
+                  <button onClick={() => setIsAgentHelpModalOpen(false)} className="modal-button-confirm">Entendi</button>
+                </div>
               </div>
             )}
         </div>
